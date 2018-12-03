@@ -1,4 +1,5 @@
-em_algorithm <- function(beta_gwas, beta_eqtl, K = 2, tol = 1e-5, init = NULL, max.niter = 15) {
+em_algorithm <- function(beta_gwas, beta_eqtl, K = 2, tol = 1e-5, init = NULL, max.niter = 15, seed = 1) {
+  set.seed(seed)
   niter <- 0
   # initialization
   if(is.null(init)) {
@@ -26,7 +27,7 @@ em_algorithm <- function(beta_gwas, beta_eqtl, K = 2, tol = 1e-5, init = NULL, m
     logw <- sweep(logw, 1, logw.rowsum, FUN = '-') 
     loglik.new.element <- sweep(logL, 1, log(pi), FUN = '+')
     loglik.new.rowsum <- apply(loglik.new.element, 1, logsum)
-    loglik.new <- logsum(loglik.new.rowsum)
+    loglik.new <- sum(loglik.new.rowsum)
     lld <- c(lld, loglik.new)
     # message('loglik = ', loglik, ', loglik.new = ', loglik.new)
     # message('sigma.k = ', paste(sigma_k, collapse = ', '), ' sigma = ', sigma, ' pi = ', paste(pi, collapse = ', '))
@@ -50,7 +51,6 @@ em_algorithm <- function(beta_gwas, beta_eqtl, K = 2, tol = 1e-5, init = NULL, m
     logw.colsum <- apply(logw, 2, logsum)
     log2.sum <- logsum(logw.colsum)
     pi <- exp(logw.colsum - log2.sum)
-    fn(c(log(sigma_k), log(sigma)), beta_gwas, beta_eqtl.square, logw)
     out <- grad_solver(beta_gwas, beta_eqtl.square, logw, c(log(sigma_k), log(sigma)))
     # message('grad_fn (optim) = ', paste(grad_fn(out$par, beta_gwas, beta_eqtl.square, logw), collapse = ', '))
     out2 <- quad_solver(beta_gwas, beta_eqtl.square, logw, out$par)
@@ -115,7 +115,8 @@ local_root_finding <- function(x.init, fn, jn, tol = 1e-10, max.niter = 10) {
       return(x.n)
     })
     x.new <- x.n - del.x
-    diff <- sqrt(norm(x.n - x.new, type = '2'))
+    diff <- sqrt(sum((x.n - x.new)^2))
+    if(diff == Inf) return(x.n)
     if(diff < tol) {
       return(x.new)
     } else {
@@ -146,9 +147,8 @@ jacobian_grad <- function(params, beta_gwas, beta_eqtl.square, logw) {
 get_loglik <- function(beta_gwas, beta_eqtl, sigma_k, sigma, pi) {
   beta_eqtl.square <- beta_eqtl ^ 2
   logL <- sapply(sigma_k, function(sk) {dnorm(x = beta_gwas, mean = 0, sd = sqrt(beta_eqtl.square * sk + sigma), log = T)})
-  logw <- sweep(logL, 2, log(pi), FUN = '+')
   loglik.new.element <- sweep(logL, 1, log(pi), FUN = '+')
   loglik.new.rowsum <- apply(loglik.new.element, 1, logsum)
-  loglik.new <- logsum(loglik.new.rowsum)
+  loglik.new <- sum(loglik.new.rowsum)
   return(loglik.new)
 }

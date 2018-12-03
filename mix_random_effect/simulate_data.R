@@ -4,7 +4,7 @@
 # beta_gene ~ pi N(0, sigma.1) + (1 - pi) N(0, sigma.2)
 # e ~ N(0, sigma.e)
 
-n <- 10000
+# n <- 10000
 sigma.beta_eqtl <- 1
 sigma.1 <- 0.001
 sigma.2 <- 1
