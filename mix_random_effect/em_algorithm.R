@@ -1,4 +1,4 @@
-em_algorithm <- function(beta_gwas, beta_eqtl, K = 2, tol = 1e-5, init = NULL, max.niter = 15, seed = 1) {
+em_algorithm <- function(beta_gwas, beta_eqtl, K = 2, tol = 1e-5, init = NULL, max.niter = 100, seed = 1) {
   set.seed(seed)
   niter <- 0
   # initialization
@@ -25,7 +25,7 @@ em_algorithm <- function(beta_gwas, beta_eqtl, K = 2, tol = 1e-5, init = NULL, m
     logw <- sweep(logL, 2, log(pi), FUN = '+')
     logw.rowsum <- apply(logw, 1, logsum)
     logw <- sweep(logw, 1, logw.rowsum, FUN = '-') 
-    loglik.new.element <- sweep(logL, 1, log(pi), FUN = '+')
+    loglik.new.element <- sweep(logL, 2, log(pi), FUN = '+')
     loglik.new.rowsum <- apply(loglik.new.element, 1, logsum)
     loglik.new <- sum(loglik.new.rowsum)
     lld <- c(lld, loglik.new)
@@ -49,18 +49,36 @@ em_algorithm <- function(beta_gwas, beta_eqtl, K = 2, tol = 1e-5, init = NULL, m
     
     # M-step
     logw.colsum <- apply(logw, 2, logsum)
+    # message('dim logw.colsum = ', paste0(dim(logw.colsum), collapse = ' '))
     log2.sum <- logsum(logw.colsum)
+    # message('dim log2.sum = ', paste0(dim(log2.sum), collapse = ' '))
+    lld.before <- get_loglik(beta_gwas, beta_eqtl, sigma_k, sigma, pi)
+    # q1 <- sum(sweep(exp(logw), 2, log(pi), FUN = '*') )
     pi <- exp(logw.colsum - log2.sum)
+    # q2 <- sum(sweep(exp(logw), 2, log(pi), FUN = '*') )
+    # if(q2 - q1 < 0) {
+      
+      # message('del q = ', q2 - q1)
+    # }
+    # lld.a1 <- get_loglik(beta_gwas, beta_eqtl, sigma_k, sigma, pi)
+    # fn.before <- fn(c(log(sigma_k), log(sigma)), beta_gwas, beta_eqtl.square, logw)
+    
     out <- grad_solver(beta_gwas, beta_eqtl.square, logw, c(log(sigma_k), log(sigma)))
     # message('grad_fn (optim) = ', paste(grad_fn(out$par, beta_gwas, beta_eqtl.square, logw), collapse = ', '))
     out2 <- quad_solver(beta_gwas, beta_eqtl.square, logw, out$par)
     # message('grad_fn (newton) = ', paste(grad_fn(out2, beta_gwas, beta_eqtl.square, logw), collapse = ', '))
+    # fn.after <- fn(out2, beta_gwas, beta_eqtl.square, logw)
+    # message('grad_fn (newton) = ', paste(grad_fn(out2, beta_gwas, beta_eqtl.square, logw), collapse = ', '))
+    # message('del fn = ', fn.after - fn.before)
     sigma_k <- exp(out2[1 : (length(out$par) - 1)])
     sigma <- exp(out2[length(out$par)])
+    # lld.a2 <- get_loglik(beta_gwas, beta_eqtl, sigma_k, sigma, pi)
+    # message('del lld1 = ', lld.a1 - lld.before)
+    # message('del lld2 = ', lld.a2 - lld.a1)
     niter <- niter + 1
     # print(loglik)
   }
-  return(list(sigma = sigma.out, sigma_k = sigma_k.out, pi = pi.out, lld = lld))
+  return(list(sigma = sigma.out, sigma_k = sigma_k.out, pi = pi.out, lld = lld, posterior_z = get_posterior_z(beta_gwas, beta_eqtl, sigma_k.out, sigma.out, pi.out)))
 }
 
 logsum <- function(logx) {
@@ -108,6 +126,7 @@ local_root_finding <- function(x.init, fn, jn, tol = 1e-10, max.niter = 10) {
   diff <- Inf
   x.n <- x.init
   niter <- 1
+  l.fn <- sqrt(sum(fn(x.n)^2))
   while(max.niter > niter) {
     del.x = tryCatch({
       solve(jn(x.n), fn(x.n))
@@ -115,6 +134,10 @@ local_root_finding <- function(x.init, fn, jn, tol = 1e-10, max.niter = 10) {
       return(x.n)
     })
     x.new <- x.n - del.x
+    l.fn.new <- sqrt(sum(fn(x.new)^2))
+    if(l.fn.new > l.fn) return(x.n)
+    # message(paste(del.x, collapse = ' '))
+    # message(paste(fn(x.new), collapse = ' '))
     diff <- sqrt(sum((x.n - x.new)^2))
     if(diff == Inf) return(x.n)
     if(diff < tol) {
@@ -123,6 +146,7 @@ local_root_finding <- function(x.init, fn, jn, tol = 1e-10, max.niter = 10) {
       x.n <- x.new
     }
     niter <- niter + 1
+    l.fn <- l.fn.new
   }
   return(x.new)
 }
@@ -147,8 +171,17 @@ jacobian_grad <- function(params, beta_gwas, beta_eqtl.square, logw) {
 get_loglik <- function(beta_gwas, beta_eqtl, sigma_k, sigma, pi) {
   beta_eqtl.square <- beta_eqtl ^ 2
   logL <- sapply(sigma_k, function(sk) {dnorm(x = beta_gwas, mean = 0, sd = sqrt(beta_eqtl.square * sk + sigma), log = T)})
-  loglik.new.element <- sweep(logL, 1, log(pi), FUN = '+')
+  loglik.new.element <- sweep(logL, 2, log(pi), FUN = '+')
   loglik.new.rowsum <- apply(loglik.new.element, 1, logsum)
   loglik.new <- sum(loglik.new.rowsum)
   return(loglik.new)
+}
+
+get_posterior_z <- function(beta_gwas, beta_eqtl, sigma_k, sigma, pi) {
+  beta_eqtl.square <- beta_eqtl ^ 2
+  logL <- sapply(sigma_k, function(sk) {dnorm(x = beta_gwas, mean = 0, sd = sqrt(beta_eqtl.square * sk + sigma), log = T)})
+  logw <- sweep(logL, 2, log(pi), FUN = '+')
+  logw.rowsum <- apply(logw, 1, logsum)
+  logw <- sweep(logw, 1, logw.rowsum, FUN = '-') 
+  return(exp(logw)[, 1])
 }
